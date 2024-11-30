@@ -6,8 +6,8 @@
  * In windows, you can find the IP address by running the command "ipconfig" in the command prompt.
  * It is the value of the "IPv4 Address" field. Usually, it is something like "192.168.1.XXX".
  * 
- ** 2. To run the program, cd ./src/main/java and run the following command:
- ** 	  javac com/cn2/communication/App.java ; java com.cn2.communication.App
+ ** 2. To run the program, cd ./Code/src/main/java and run the following command:
+ ** 	   javac com/cn2/communication/App.java ; java com.cn2.communication.App
  */
 
 
