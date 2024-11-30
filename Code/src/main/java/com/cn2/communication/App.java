@@ -8,6 +8,8 @@
  * 
  ** 2. To run the program, cd ./Code/src/main/java and run the following command:
  ** 	   javac com/cn2/communication/App.java ; java com.cn2.communication.App
+ ** 2. To run the program, cd ./Code/src/main/java and run the following command:
+ ** 	  javac com/cn2/communication/App.java ; java com.cn2.communication.App
  */
 
 
