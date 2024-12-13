@@ -84,8 +84,9 @@ public class SecurityModule {
         try {
             Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding"); // Define the encryption algorithm
             cipher.init(Cipher.ENCRYPT_MODE, remotePublicKey); // Initialize the cipher with remote party's public key
-            byte[] encryptedKey = cipher.doFinal(symmetricKey.getEncoded()); // Encrypt the symmetric key
+            byte[] encryptedKey = cipher.doFinal(symmetricKey.getEncoded()); // Encrypt the symmetric key    
             return Base64.getEncoder().encodeToString(encryptedKey); // Return the encrypted key as Base64 encoded string
+
         } catch (Exception e) {
             e.printStackTrace();
             return null;
@@ -96,6 +97,11 @@ public class SecurityModule {
      * Decrypt and set the symmetric key *received* from remote party
      */
     public boolean setRemoteSymmetricKey(String encryptedSymmetricKey) {
+        if (symmetricKey != null) {
+            System.out.println("Symmetric key already set. Skipping.");
+            return true;
+        }
+        
         try {
             // Decrypt the symmetric key using local private key
             byte[] encryptedKeyBytes = Base64.getDecoder().decode(encryptedSymmetricKey);
@@ -119,7 +125,7 @@ public class SecurityModule {
     public String encrypt(String message) {
 
         try {
-            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS7Padding");
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
             cipher.init(Cipher.ENCRYPT_MODE, symmetricKey);
             byte[] encryptedBytes = cipher.doFinal(message.getBytes());
             
@@ -154,5 +160,12 @@ public class SecurityModule {
      */
     public boolean isSecureConnectionEstablished() {
         return isSecureConnectionEstablished;
+    }
+
+    /**
+     * Set the secure connection status
+     */
+    public void setSecureConnectionStatus(boolean status) {
+        isSecureConnectionEstablished = status;
     }
 }
