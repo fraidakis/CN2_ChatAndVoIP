@@ -18,6 +18,7 @@ import java.net.*; // Import the java.net package to use the classes for network
 import javax.swing.JFrame; // Import the JFrame class from the javax.swing package to create the app's window
 import javax.swing.JOptionPane;
 import javax.swing.JTextField; // Import the JTextField class from the javax.swing package to create the text field
+import javax.swing.text.DefaultCaret;
 import javax.swing.JButton; // Import the JButton class from the javax.swing package to create the button
 import javax.swing.JTextArea; // Import the JTextArea class from the javax.swing package to create the text area
 import javax.swing.JScrollPane; // Import the JScrollPane class from the javax.swing package to create the scroll pane
@@ -52,6 +53,10 @@ public class App extends Frame implements WindowListener, ActionListener {
 	final static String newline = "\n";
 	static JButton callButton; // The button that initiates the call
 
+	private static JButton acceptButton; // Button to accept call
+	private static JButton rejectButton; // Button to reject call
+
+
 	// !Please define and initialize your variables here...
 
 	// Network related fields
@@ -69,11 +74,16 @@ public class App extends Frame implements WindowListener, ActionListener {
 	private static TargetDataLine microphone; // Microphone for recording voice
 	private static SourceDataLine speakers; // Speakers for playing voice
 	private static boolean isCallActive = false; // Flag for call status
+	private static long callStartTime; // Time when the call started
+	private static long callEndTime; // Time when the call ended
 	private static Thread receiveVoiceThread; // Thread for receiving voice data
 	private static Thread sendVoiceThread; // Thread for sending voice data
 	private static Thread receiveChatThread; // Thread for receiving chat messages
+	private static Clip incomingCallClip; // Clip for incoming call sound
 
-	// Security related fields
+	// Connection and security related fields
+	private static boolean isConnected = false;
+	private static boolean isInitiator = true;
 	private static SecurityModule securityModule;
 
 	/**
@@ -99,14 +109,24 @@ public class App extends Frame implements WindowListener, ActionListener {
 		// Setting up the TextArea (where the messages will be displayed).
 		textArea = new JTextArea(10, 40);
 		textArea.setLineWrap(true); // The text will wrap to the next line if it exceeds the width of the text area
+		textArea.setWrapStyleWord(true);
 		textArea.setEditable(false); // The user cannot edit the displayed messages
 		JScrollPane scrollPane = new JScrollPane(textArea); // Adding a scroll pane to the text area
-		scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS); // Setting the vertical scroll bar
-																						// to always be visible
+		scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS); // Setting the vertical scroll bar to always be visible
+		
+		// Enable auto-scrolling
+		DefaultCaret caret = (DefaultCaret) textArea.getCaret();
+		caret.setUpdatePolicy(DefaultCaret.ALWAYS_UPDATE);
+
+
 
 		// Setting up the buttons
 		sendButton = new JButton("Send");
 		callButton = new JButton("Call");
+		acceptButton = new JButton("Accept");
+		rejectButton = new JButton("Reject");
+
+
 
 		/*
 		 * 2. Adding the components to the GUI
@@ -115,6 +135,9 @@ public class App extends Frame implements WindowListener, ActionListener {
 		add(inputTextField);
 		add(sendButton);
 		add(callButton);
+		add(acceptButton);
+		add(rejectButton);
+
 
 		/*
 		 * 3. Linking the buttons to the ActionListener
@@ -124,6 +147,14 @@ public class App extends Frame implements WindowListener, ActionListener {
 
 		callButton.addActionListener(this); // The ActionListener will listen for the "Call" button to be clicked
 		callButton.setBackground(Color.GREEN); // Setting the background color of the "Call" button
+
+		acceptButton.addActionListener(this); // The ActionListener will listen for the "Accept" button to be clicked
+		acceptButton.setVisible(false); // Initially hidden
+		acceptButton.setBackground(Color.GREEN); // Setting the background color of the "Accept" button
+
+		rejectButton.addActionListener(this); // The ActionListener will listen for the "Reject" button to be clicked
+		rejectButton.setVisible(false); // Initially hidden
+		rejectButton.setBackground(Color.RED); // Setting the background color of the "Reject" button
 
 		inputTextField.addActionListener(e -> sendMessage()); // The ActionListener will listen for the "Enter" key to
 																// be pressed in the text field
@@ -161,9 +192,6 @@ public class App extends Frame implements WindowListener, ActionListener {
 			audioFormat = new AudioFormat(8000.0f, 8, 1, true, false);
 			securityModule = new SecurityModule();
 
-			boolean isConnected = false;
-			boolean isInitiator = true;
-
 			textArea.append("---------------------------      Connection Status      ---------------------------" + newline + newline);
 
 			while (!isConnected) {
@@ -190,7 +218,7 @@ public class App extends Frame implements WindowListener, ActionListener {
 							textArea.append("---------------------------      Secure Connection      ---------------------------" + newline + newline);
 
 							// Start secure connection
-							textArea.append("Starting secure connection - Initiator..." + newline);
+							textArea.append("Starting secure connection..." + newline);
 							app.initiateKeyExchange();
 			
 						}
@@ -273,35 +301,29 @@ public class App extends Frame implements WindowListener, ActionListener {
 						}
 
 						else if ("CALL_REQUEST".equals(receivedMessage)) {
-							int choice = JOptionPane.showConfirmDialog(
-									null, "Incoming call. Accept?", "Call Request", JOptionPane.YES_NO_OPTION);
-							if (choice == JOptionPane.YES_OPTION) {
-								String acceptMessage = "CALL_ACCEPT";
-								byte[] response = acceptMessage.getBytes();
-								DatagramPacket responsePacket = new DatagramPacket(response, response.length,
-										packet.getAddress(), packet.getPort());
-								chatSocket.send(responsePacket);
 
-								if(!isCallActive)
-									app.startCall();
-							} else {
-								String rejectMessage = "CALL_REJECT";
-								byte[] response = rejectMessage.getBytes();
-								DatagramPacket responsePacket = new DatagramPacket(response, response.length,
-										packet.getAddress(), packet.getPort());
-								chatSocket.send(responsePacket);
-							}
+							textArea.append("Incoming call request..." + newline);
+
+							new Thread(() -> app.playIncomingCallSound()).start();
+
+							acceptButton.setVisible(true);
+							rejectButton.setVisible(true);
+							callButton.setVisible(false);
 						}
 
 						else if ("CALL_ACCEPT".equals(receivedMessage)) {
-							System.out.println("Call accepted by remote.");
 							textArea.append("Call accepted by remote." + newline);
 							app.startCall();
+							callButton.setEnabled(true); // Disable the button when the call starts
+							acceptButton.setVisible(false);
+							rejectButton.setVisible(false);
 						}
 
 						else if ("CALL_REJECT".equals(receivedMessage)) {
-							System.out.println("Call rejected by remote.");
 							textArea.append("Call rejected by remote." + newline);
+							callButton.setEnabled(true); // Disable the button when the call starts
+							acceptButton.setVisible(false);
+							rejectButton.setVisible(false);	
 						}
 
 						else if ("END_CALL".equals(receivedMessage)) {
@@ -363,9 +385,17 @@ public class App extends Frame implements WindowListener, ActionListener {
 		} else if (e.getSource() == callButton) {
 
 			// The "Call" button was clicked
-			if (!isCallActive) {
+			if (!isConnected) {
+				textArea.append("Connection not established. Cannot initiate call." + newline);
+				return;
+			}
+	
+			else if (!isCallActive) {
 				// Send call request
 				try {
+					callButton.setEnabled(false); // Disable the button when the call starts
+					callButton.setText("Calling...");
+					callButton.setBackground(Color.orange);
 					String callRequest = "CALL_REQUEST";
 					byte[] data = callRequest.getBytes();
 					DatagramPacket packet = new DatagramPacket(data, data.length, remoteIP, remoteChatPort);
@@ -388,6 +418,53 @@ public class App extends Frame implements WindowListener, ActionListener {
 
 			}
 		}
+
+		else if (e.getSource() == acceptButton) {
+			acceptButton.setVisible(false);
+			rejectButton.setVisible(false);
+
+			if (incomingCallClip != null && incomingCallClip.isRunning()) {
+				incomingCallClip.stop();
+			}
+			
+			try {
+				String acceptMessage = "CALL_ACCEPT";
+				byte[] data = acceptMessage.getBytes();
+				DatagramPacket packet = new DatagramPacket(data, data.length, remoteIP, remoteChatPort);
+				chatSocket.send(packet);
+				textArea.append("Call accepted." + newline);
+				callButton.setVisible(true);	
+
+				if(!isCallActive)
+					startCall();
+
+			} catch (IOException ex) {
+				ex.printStackTrace();
+			}
+		}
+
+		else if (e.getSource() == rejectButton) {
+			acceptButton.setVisible(false);
+			rejectButton.setVisible(false);
+
+			if (incomingCallClip != null && incomingCallClip.isRunning()) {
+				incomingCallClip.stop();
+			}
+			
+			try {
+				String rejectMessage = "CALL_REJECT";
+				callButton.setVisible(true);	
+
+				byte[] data = rejectMessage.getBytes();
+				DatagramPacket packet = new DatagramPacket(data, data.length, remoteIP, remoteChatPort);
+				chatSocket.send(packet);
+				textArea.append("Call rejected." + newline);
+			} catch (IOException ex) {
+				ex.printStackTrace();
+			}
+		}
+
+
 	}
 
 	/**
@@ -407,7 +484,6 @@ public class App extends Frame implements WindowListener, ActionListener {
 			String encryptedMessage = securityModule.encrypt(message);
 
 			if (encryptedMessage == null) {
-				System.out.println("Message encryption failed.");
 				textArea.append("Message encryption failed." + newline);
 				return;
 			}
@@ -434,6 +510,7 @@ public class App extends Frame implements WindowListener, ActionListener {
 	}
 
 	private void startCall() {
+
 		try {
 			// Initialize audio devices
 			DataLine.Info micInfo = new DataLine.Info(TargetDataLine.class, audioFormat);
@@ -454,6 +531,7 @@ public class App extends Frame implements WindowListener, ActionListener {
 			speakers.start();
 
 			isCallActive = true;
+			callStartTime = System.currentTimeMillis(); // Record the start time of the call
 			callButton.setText("End Call");
 			callButton.setBackground(Color.RED);
 
@@ -499,6 +577,14 @@ public class App extends Frame implements WindowListener, ActionListener {
 
 	private void stopCall() {
 		isCallActive = false;
+
+		callEndTime = System.currentTimeMillis(); // Record the end time of the call
+		// Calculate and display call duration
+		long callDuration = (callEndTime - callStartTime) / 1000; // Duration in seconds
+		String durationMessage = "Call duration: " + callDuration + " seconds";
+		textArea.append(durationMessage + newline);
+		
+
 		callButton.setText("Call");
 		callButton.setBackground(Color.GREEN);
 
@@ -523,7 +609,7 @@ public class App extends Frame implements WindowListener, ActionListener {
 
 		String publicKey = securityModule.getPublicKey(); // Get RSA public key to send to the remote party
 		sendEstablishMessage("PUBLIC_KEY:" + publicKey);
-		textArea.append("Stage 1: Sent local public key." + newline);
+		textArea.append("Stage 1: Send local public key." + newline);
 	}
 
 	/**
@@ -539,7 +625,7 @@ public class App extends Frame implements WindowListener, ActionListener {
 
 			if (encryptedSymmetricKey != null) {
 				sendEstablishMessage("SYMMETRIC_KEY:" + encryptedSymmetricKey);
-				textArea.append("Stage 3: Generating symmetric key and sent it to remote." + newline);
+				textArea.append("Stage 3: Generating symmetric key and send it to remote." + newline);
 
 			} else
 				textArea.append("Failed to encrypt symmetric key." + newline);
@@ -573,6 +659,20 @@ public class App extends Frame implements WindowListener, ActionListener {
 			e.printStackTrace();
 		}
 	}
+
+	private void playIncomingCallSound() {
+		try {
+			File soundFile = new File("./../../../src/resources/ringtone.wav");
+			AudioInputStream audioStream = AudioSystem.getAudioInputStream(soundFile);
+	
+			incomingCallClip = AudioSystem.getClip();
+			incomingCallClip.open(audioStream);
+			incomingCallClip.start(); // Play the sound
+		} catch (UnsupportedAudioFileException | IOException | LineUnavailableException e) {
+			e.printStackTrace();
+		}
+	}
+	
 
 	/**
 	 * These methods have to do with the GUI. You can use them if you wish to define
