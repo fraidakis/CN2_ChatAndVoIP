@@ -1,4 +1,3 @@
-// cd "c:\Users\Lenovo Ideapad 5 Pro\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\Επιφάνεια εργασίας\Δίκτυα ΙΙ\Project\Code\CN2_AUTH_ChatAndVoIP\src\main\java" ; if ($?) { javac com\cn2\communication\App.java } ; if ($?) { java com.cn2.communication.App }
 
 /** 
  *! Instructions:
@@ -470,6 +469,10 @@ public class App extends Frame implements WindowListener, ActionListener {
 		}
 	}
 
+
+
+
+
 	// ***************************************   Security Methods   *************************************** //
 
 	/**
@@ -520,6 +523,11 @@ public class App extends Frame implements WindowListener, ActionListener {
 			return false;
 		}
 	}
+
+
+
+
+
 
 	// ***************************************   Network Methods   *************************************** //
 
@@ -762,6 +770,11 @@ public class App extends Frame implements WindowListener, ActionListener {
 		}
 	}
 
+
+
+
+
+	
 	// ***************************************   GUI Methods   *************************************** //
 
 	/**
@@ -810,5 +823,4 @@ public class App extends Frame implements WindowListener, ActionListener {
 		// This method is called when the window is first opened
 		System.out.println("Window opened");
 	}
-
 }
