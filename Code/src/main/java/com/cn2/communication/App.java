@@ -321,6 +321,8 @@ public class App extends Frame implements WindowListener, ActionListener {
 
 						else if ("CALL_REJECT".equals(receivedMessage)) {
 							textArea.append("Call rejected by remote." + newline);
+							callButton.setText("Call");
+							callButton.setBackground(Color.GREEN);					
 							callButton.setEnabled(true); // Disable the button when the call starts
 							acceptButton.setVisible(false);
 							rejectButton.setVisible(false);	
