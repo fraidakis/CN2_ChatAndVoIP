@@ -13,6 +13,7 @@ package com.cn2.communication; // Define the package where the class is located
 
 import java.io.*; // Import the java.io package to use the classes for input/output operations
 import java.net.*; // Import the java.net package to use the classes for networking operations
+import java.util.Arrays;
 import java.lang.Thread; // Import the Thread class from the java.lang package to create a new thread
 import javax.sound.sampled.*;
 
@@ -26,7 +27,6 @@ import javax.swing.JScrollPane; // Import the JScrollPane class from the javax.s
 
 import java.awt.*; // Import the java.awt package to use the classes for the GUI components
 import java.awt.event.*; // Import the java.awt.event package to use the classes for the events
-
 
 /**
  * The App class is the main class of the application. It creates the app's
@@ -52,9 +52,6 @@ public class App extends Frame implements WindowListener, ActionListener {
 	final static String newline = "\n";
 	static JButton callButton; // The button that initiates the call
 
-	private static JButton acceptButton; // Button to accept call
-	private static JButton rejectButton; // Button to reject call
-
 	// !Please define and initialize your variables here...
 
 	// Network related fields
@@ -76,30 +73,29 @@ public class App extends Frame implements WindowListener, ActionListener {
 	private static long callEndTime; // Time when the call ended
 	private static Thread receiveVoiceThread; // Thread for receiving voice data
 	private static Thread sendVoiceThread; // Thread for sending voice data
-	private static Thread receiveChatThread; // Thread for receiving chat messages
 	private static Clip incomingCallClip; // Clip for incoming call sound
 
 	// Connection and security related fields
 	private static boolean isConnected = false; // Flag for connection status (connected or not)
 	private static boolean isInitiator = true; // Flag for connection initiator (who initiates the connection)
 	private static SecurityModule securityModule; // Security module for encryption and decryption of messages
+	private static JButton acceptButton; // Button to accept call
+	private static JButton rejectButton; // Button to reject call
+	private String selectedProtocol; // Default πρωτόκολλο
+	private static boolean isProtocolSelected = false; // Flag for protocol selection
+
 	private static final String[] CONNECTION_STATES = {
-		"PUBLIC_KEY:", 
-		"SYMMETRIC_KEY:", 
-		"SECURE_CONNECTION_ESTABLISHED", 
-		"CALL_REQUEST", 
-		"CALL_ACCEPT", 
-		"CALL_REJECT", 
-		"END_CALL", 
-		"DISCONNECT"
+			"CALL_REQUEST",
+			"CALL_ACCEPT",
+			"CALL_REJECT",
+			"END_CALL",
+			"DISCONNECT"
 	};
-	
 
 	/**
 	 * The constructor of the App class. It initializes the app's window and the GUI
 	 */
 	public App(String title) {
-
 
 		/*
 		 * 1. Defining the components of the GUI
@@ -162,14 +158,20 @@ public class App extends Frame implements WindowListener, ActionListener {
 		rejectButton.setVisible(false); // Initially hidden
 		rejectButton.setBackground(Color.RED); // Setting the background color of the "Reject" button
 
-		inputTextField.addActionListener(e -> sendMessage()); // The ActionListener will listen for the "Enter" key to be pressed in the text field
-		
+		inputTextField.addActionListener(e -> {
+			if ("UDP".equals(selectedProtocol)) {
+				sendMessageWithUDP();
+			} else {
+				sendMessageWithTCP();
+			}
+		});
+
 		instance = this; // Set the global instance to the current instance
 	}
 
 	public static App getInstance() {
-        return instance; // Return the global instance
-    }
+		return instance; // Return the global instance
+	}
 
 	/**
 	 * The main method of the App class. It creates an instance of the App class and
@@ -192,7 +194,6 @@ public class App extends Frame implements WindowListener, ActionListener {
 			remoteChatPort = tempChatPort;
 			remoteVoicePort = tempVoicePort;
 		}
-
 		try {
 			App app = new App("Chat & VoIP");
 			app.setSize(500, 250);
@@ -205,65 +206,54 @@ public class App extends Frame implements WindowListener, ActionListener {
 			audioFormat = new AudioFormat(8000.0f, 8, 1, true, false); // Set the audio format for voice data
 			securityModule = new SecurityModule(); // Create a new security module for encryption and decryption
 
+			app.establishConnection();
 
-			app.establishConnection(); // Method to handle reconnection logic
+			// Επιλογή πρωτοκόλλου
+			if (isInitiator) {
+				textArea.append("Selecting protocol..." + newline);
+				app.selectedProtocol = setupProtocolSelector(); // Επιλογή πρωτοκόλλου
+				textArea.append("Selected protocol: " + app.selectedProtocol + newline);
+				app.sendConnectionMessage("PROTOCOL:" + app.selectedProtocol);
+				isProtocolSelected = true;
+			} else {
 
-			
-			receiveChatThread = new Thread(() -> {
-				/*
-				 * 2. Listen for new messages
-				 */
-				while (true) {
+				textArea.append("Waiting for protocol selection..." + newline);
+				DatagramPacket protocolPacket = new DatagramPacket(buffer, buffer.length);
+				do {
+					textArea.append("Waiting to receive protocol..." + newline);
+					chatSocket.receive(protocolPacket);
 
-					// !Be in a loop and listen for new messages
+					String protocolMessage = new String(protocolPacket.getData(), protocolPacket.getOffset(),
+							protocolPacket.getLength());
 
-					try {
-						// Prepare packet for receiving
-						DatagramPacket packet = new DatagramPacket(buffer, buffer.length); // Create a new DatagramPacket for receiving data
-						chatSocket.receive(packet); // Receive data and store it in the packet
-
-						// Convert received data to string and display
-						String receivedMessage = new String(packet.getData(), packet.getOffset(), packet.getLength()); // Convert the received data to a string
-
-						// Check if the message matches a connection state
-						boolean isConnectionState = false;
-						for (String state : CONNECTION_STATES) {
-							if (receivedMessage.startsWith(state)) {
-								isConnectionState = true;
-								app.handleConnectionState(receivedMessage);
-								break;
-							}
-						}
-
-						// If it's not a connection message -> regular message
-						if (!isConnectionState) {
-
-							if (securityModule.isSecureConnectionEstablished()) {
-								// Decrypt and display message
-								String decryptedMessage = securityModule.decrypt(receivedMessage);
-								
-								if (decryptedMessage != null) {
-									textArea.append("Received: " + decryptedMessage + newline);
-								} 
-								
-								else {
-									textArea.append("Failed to decrypt message" + newline);
-								}
-							} 
-							
-							else {
-								textArea.append("Secure connection not established. Discarding message." + newline);
-							}
-						}
-
-					} catch (IOException e) {
-						e.printStackTrace(); // Print any exceptions that occur while receiving messages
+					if (protocolMessage.startsWith("PROTOCOL:")) {
+						app.selectedProtocol = protocolMessage.split(":")[1].trim();
+						textArea.append("Protocol received: " + app.selectedProtocol + newline);
+						isProtocolSelected = true;
+						break; // Exit the loop once the protocol is received
 					}
+				} while (true); // Loop until a valid message is received
 
-				}
-			});
+				textArea.append("Selected protocol: " + app.selectedProtocol + newline);
 
-			receiveChatThread.start(); // Start the thread for receiving chat messages
+			}
+
+			// String selectedProtocol = setupProtocolSelector(); // Κλήση της μεθόδου
+			// επιλογής πρωτοκόλλου
+			boolean useUDP = app.getSelectedProtocol().equals("UDP"); // Ελέγχουμε αν ο χρήστης επέλεξε UDP
+
+			// Εκκίνηση listener ανάλογα με το πρωτόκολλο
+			if (useUDP) {
+				textArea.append(
+						"---------------------------      UDP Connection      ---------------------------" + newline);
+				app.startUDPListener(); // Ξεκίνα το UDP listener
+			} else {
+				textArea.append(
+						"---------------------------      TCP Connection      ---------------------------" + newline);
+				chatSocket.close();
+				voiceSocket.close();
+				app.startTCPServer(); // Ξεκίνα τον TCP server
+			}
 
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -278,6 +268,21 @@ public class App extends Frame implements WindowListener, ActionListener {
 		}
 	}
 
+	private static String setupProtocolSelector() {
+		String[] options = { "UDP", "TCP" };
+		int choice = JOptionPane.showOptionDialog(
+				null,
+				"Select the protocol you want to use:",
+				"Protocol Selector",
+				JOptionPane.DEFAULT_OPTION,
+				JOptionPane.INFORMATION_MESSAGE,
+				null,
+				options,
+				options[0]);
+
+		return (choice == 1) ? "TCP" : "UDP"; // Επιστρέφει το πρωτόκολλο
+	}
+
 	/**
 	 * The method that corresponds to the Action Listener. Whenever an action is
 	 * performed (i.e., one of the buttons is clicked) this method is executed.
@@ -290,7 +295,13 @@ public class App extends Frame implements WindowListener, ActionListener {
 		if (e.getSource() == sendButton) {
 
 			// The "Send" button was clicked
-			sendMessage();
+
+			// Έλεγχος πρωτοκόλλου και αποστολή του μηνύματος
+			if ("UDP".equals(selectedProtocol)) {
+				sendMessageWithUDP();
+			} else if ("TCP".equals(selectedProtocol)) {
+				sendMessageWithTCP();
+			}
 
 		} else if (e.getSource() == callButton) {
 
@@ -307,6 +318,7 @@ public class App extends Frame implements WindowListener, ActionListener {
 				callButton.setText("Calling...");
 				callButton.setBackground(Color.orange);
 				sendConnectionMessage("CALL_REQUEST");
+
 				textArea.append("Call request sent." + newline);
 			}
 
@@ -349,10 +361,14 @@ public class App extends Frame implements WindowListener, ActionListener {
 
 	}
 
+	public String getSelectedProtocol() {
+		return this.selectedProtocol;
+	}
+
 	/**
 	 * The method that sends the message to the remote machine.
 	 */
-	public void sendMessage() {
+	public void sendMessageWithUDP() {
 		if (!securityModule.isSecureConnectionEstablished()) {
 			textArea.append("Secure connection not established. Cannot send message." + newline);
 			return;
@@ -369,21 +385,159 @@ public class App extends Frame implements WindowListener, ActionListener {
 			return;
 		}
 
-		sendConnectionMessage(encryptedMessage);
+		// Send the encrypted message via UDP
+		sendMessageWithUDP(encryptedMessage);
 
 		// Display the message in the text area
-		textArea.append("Send: " + message + newline);
-		// textArea.append("Send: " + securityModule.decrypt(message) + newline);
+		textArea.append("Send (UDP): " + message + newline);
 
 		// Clear the text field
 		inputTextField.setText("");
+	}
+
+	public void sendMessageWithUDP(String message) {
+		try {
+			DatagramPacket packet = new DatagramPacket(message.getBytes(), message.length(), remoteIP, remoteChatPort);
+			chatSocket.send(packet);
+		} catch (IOException e) {
+			e.printStackTrace();
+			textArea.append("Failed to send message via UDP." + newline);
+		}
+	}
+
+	private void startUDPListener() {
+		new Thread(() -> {
+			while (true) {
+				try {
+					Arrays.fill(buffer, (byte) 0); // Clear buffer
+					DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+					chatSocket.receive(packet);
+
+					String receivedMessage = new String(packet.getData(), packet.getOffset(), packet.getLength());
+
+					// Έλεγχος για την ασφαλή σύνδεση πριν την επεξεργασία του μηνύματος
+					if (securityModule.isSecureConnectionEstablished()) {
+						// Αποκρυπτογράφηση του μηνύματος εφόσον η σύνδεση είναι ασφαλής
+						String decryptedMessage = securityModule.decrypt(receivedMessage);
+						if (decryptedMessage == null) {
+							textArea.append("Failed to decrypt UDP message.\n");
+						}
+					} else {
+						textArea.append("Secure connection not established. Discarding message (UDP).\n");
+					}
+
+					// Check if the message matches a connection state
+					boolean isConnectionState = false;
+					for (String state : CONNECTION_STATES) {
+						if (receivedMessage.startsWith(state)) {
+							isConnectionState = true;
+							handleConnectionState(receivedMessage);
+							break;
+						}
+					}
+
+					if (!isConnectionState) {
+						if (securityModule.isSecureConnectionEstablished()) {
+							String decryptedMessage = securityModule.decrypt(receivedMessage);
+							textArea.append("Received (UDP): " + decryptedMessage + "\n");
+						} else {
+							textArea.append("Secure connection not established. Discarding message.\n");
+						}
+					}
+
+				} catch (IOException e) {
+					e.printStackTrace();
+					break;
+				}
+			}
+		}).start();
+	}
+
+	public void sendMessageWithTCP() {
+		if (!securityModule.isSecureConnectionEstablished()) {
+			textArea.append("Secure connection not established. Cannot send message.\n");
+			return;
+		}
+
+		String message = inputTextField.getText();
+		String encryptedMessage = securityModule.encrypt(message);
+
+		if (encryptedMessage == null) {
+			textArea.append("Message encryption failed.\n");
+			return;
+		}
+
+		sendMessageWithTCP(encryptedMessage);
+		textArea.append("Sent (TCP): " + message + "\n");
+		inputTextField.setText("");
+
+	}
+
+	public void sendMessageWithTCP(String message) {
+
+		try (Socket tcpSocket = new Socket(remoteIP, remoteChatPort);
+				OutputStream out = tcpSocket.getOutputStream()) {
+
+			out.write(message.getBytes());
+			out.flush();
+
+		} catch (Exception ex) {
+			ex.printStackTrace();
+			textArea.append("Failed to send message via TCP.\n");
+		}
+	}
+
+	private void startTCPServer() {
+		new Thread(() -> {
+			try (ServerSocket serverSocket = new ServerSocket(localChatPort)) {
+				while (true) {
+					try (Socket clientSocket = serverSocket.accept();
+							InputStream in = clientSocket.getInputStream()) {
+
+						byte[] buffer = new byte[1024];
+						int bytesRead = in.read(buffer);
+						String receivedMessage = new String(buffer, 0, bytesRead);
+
+						// Έλεγχος για κατάστασεις σύνδεσης (PING/PONG κλπ)
+						boolean isConnectionState = false;
+						for (String state : CONNECTION_STATES) {
+							if (receivedMessage.startsWith(state)) {
+								isConnectionState = true;
+								handleConnectionState(receivedMessage);
+								break;
+							}
+						}
+
+						// Έλεγχος για την ασφαλή σύνδεση πριν την επεξεργασία του μηνύματος
+						if (securityModule.isSecureConnectionEstablished()) {
+							// Αποκρυπτογράφηση του μηνύματος εφόσον η σύνδεση είναι ασφαλής
+							receivedMessage = securityModule.decrypt(receivedMessage);
+						} else {
+							textArea.append("Secure connection not established. Discarding message (TCP).\n");
+						}
+
+						// Αν δεν είναι κατάσταση σύνδεσης, επεξεργαζόμαστε το μήνυμα
+						if (!isConnectionState) {
+							textArea.append("Received (TCP): " + receivedMessage + "\n");
+						}
+
+					} catch (IOException e) {
+						e.printStackTrace();
+						textArea.append("TCP server error.\n");
+					}
+				}
+			} catch (IOException ex) {
+				ex.printStackTrace();
+				textArea.append("TCP server error.\n");
+			}
+		}).start();
 	}
 
 	private void startCall() {
 
 		try {
 			// Initialize audio devices
-			DataLine.Info micInfo = new DataLine.Info(TargetDataLine.class, audioFormat); 
+			DataLine.Info micInfo = new DataLine.Info(TargetDataLine.class, audioFormat);
 			DataLine.Info speakerInfo = new DataLine.Info(SourceDataLine.class, audioFormat);
 
 			if (!AudioSystem.isLineSupported(micInfo) || !AudioSystem.isLineSupported(speakerInfo)) {
@@ -391,14 +545,13 @@ public class App extends Frame implements WindowListener, ActionListener {
 				return;
 			}
 
-			microphone = (TargetDataLine) AudioSystem.getLine(micInfo); 
-			speakers = (SourceDataLine) AudioSystem.getLine(speakerInfo); 
-
+			microphone = (TargetDataLine) AudioSystem.getLine(micInfo);
+			speakers = (SourceDataLine) AudioSystem.getLine(speakerInfo);
 
 			// Open and start audio devices with the specified audio format
-			microphone.open(audioFormat);  
-			speakers.open(audioFormat); 
-			microphone.start(); 
+			microphone.open(audioFormat);
+			speakers.open(audioFormat);
+			microphone.start();
 			speakers.start();
 
 			isCallActive = true;
@@ -469,11 +622,8 @@ public class App extends Frame implements WindowListener, ActionListener {
 		}
 	}
 
-
-
-
-
-	// ***************************************   Security Methods   *************************************** //
+	// *************************************** Security Methods
+	// *************************************** //
 
 	/**
 	 * Initiate key exchange with the remote machine
@@ -503,7 +653,6 @@ public class App extends Frame implements WindowListener, ActionListener {
 			if (encryptedSymmetricKey != null) {
 				sendConnectionMessage("SYMMETRIC_KEY:" + encryptedSymmetricKey);
 				textArea.append("Stage 3: Generating symmetric key and send it to remote." + newline);
-
 			} else
 				textArea.append("Failed to encrypt symmetric key." + newline);
 		}
@@ -524,28 +673,21 @@ public class App extends Frame implements WindowListener, ActionListener {
 		}
 	}
 
-
-
-
-
-
-	// ***************************************   Network Methods   *************************************** //
+	// *************************************** Network Methods
+	// *************************************** //
 
 	/**
 	 * Send a key exchange message
 	 */
 	private void sendConnectionMessage(String message) {
-		try {
-			// Convert the message to bytes
-			byte[] data = message.getBytes();
 
-			// Create a packet with the message and the remote IP and port
-			DatagramPacket packet = new DatagramPacket(data, data.length, remoteIP, remoteChatPort);
+		if (!isProtocolSelected || App.getInstance().getSelectedProtocol().equals("UDP")) {
+			sendMessageWithUDP(message);
+		} else {
+			if (message == "CALL_ACCEPT")
+				textArea.append("Selected protocol: " + selectedProtocol + newline);
 
-			// Send the packet
-			chatSocket.send(packet);
-		} catch (IOException e) {
-			e.printStackTrace();
+			sendMessageWithTCP(message);
 		}
 	}
 
@@ -569,69 +711,108 @@ public class App extends Frame implements WindowListener, ActionListener {
 	 * Establish connection with the remote machine
 	 */
 	private void establishConnection() {
-			// Establish connection
-			while (!isConnected) {
-				try {
-					if (isInitiator) {
-						
-						textArea.append("---------------------------      Connection Status      ---------------------------" + newline + newline);
-						textArea.append("Initiating connection..." + newline);
-						sendConnectionMessage("PING"); // Send a PING message to the remote machine
+		// Establish connection
+		while (!isConnected) {
+			try {
+				if (isInitiator) {
 
-						// Wait for PONG response
-						DatagramPacket responsePacket = new DatagramPacket(buffer, buffer.length);
-						chatSocket.setSoTimeout(100); // First person to open the app waits for 100ms and then becomes the responder
-						chatSocket.receive(responsePacket);
+					textArea.append(
+							"---------------------------      Connection Status      ---------------------------"
+									+ newline + newline);
+					textArea.append("Initiating connection..." + newline);
+					sendConnectionMessage("PING"); // Send a PING message to the remote machine
 
-						String response = new String(responsePacket.getData(), responsePacket.getOffset(), responsePacket.getLength());
-						
-						if ("PONG".equals(response)) {
+					// Wait for PONG response
+					DatagramPacket responsePacket = new DatagramPacket(buffer, buffer.length);
+					chatSocket.setSoTimeout(100); // First person to open the app waits for 100ms and then becomes the
+													// responder
+					chatSocket.receive(responsePacket);
 
-							textArea.append("Received response from remote party." + newline);
-							textArea.append("Connection established - Initiator" + newline + newline);
-							isConnected = true; // Connection established
+					String response = new String(responsePacket.getData(), responsePacket.getOffset(),
+							responsePacket.getLength());
 
-							textArea.append("---------------------------      Secure Connection      ---------------------------" + newline + newline);
+					if ("PONG".equals(response)) {
 
-							textArea.append("Starting secure connection..." + newline);
-							initiateKeyExchange(); // Initiates key exchange with the remote machine
-						}
+						textArea.append("Received response from remote party." + newline);
+						textArea.append("Connection established - Initiator" + newline + newline);
+						isConnected = true; // Connection established
+
+						textArea.append(
+								"---------------------------      Secure Connection      ---------------------------"
+										+ newline + newline);
+
+						textArea.append("Starting secure connection..." + newline);
+						initiateKeyExchange(); // Initiates key exchange with the remote machine
 					}
-
-					else {
-						// Listen for PING and respond with PONG
-						DatagramPacket requestPacket = new DatagramPacket(buffer, buffer.length);
-						chatSocket.receive(requestPacket);
-
-						String receivedMessage = new String(requestPacket.getData(), requestPacket.getOffset(),
-								requestPacket.getLength());
-						if ("PING".equals(receivedMessage)) {
-
-							textArea.append("Remote party connected, responding to connection request." + newline);
-
-							sendConnectionMessage("PONG");
-
-							textArea.append("Connection established - Responder" + newline + newline);
-							isConnected = true;
-
-							textArea.append(
-									"---------------------------      Secure Connection      ---------------------------"
-											+ newline + newline);
-
-							textArea.append("Waiting for secure connection initialization by remote..." + newline);
-						}
-					}
-				} catch (SocketTimeoutException e) {
-					// Switch roles if no response after timeout
-					if (isInitiator) {
-						isInitiator = false; // No response, retrying as responder
-						textArea.append("Waiting for remote party to connect." + newline);
-					}
-				} catch (IOException e) {
-					e.printStackTrace();
 				}
-			}
 
+				else {
+					// Listen for PING and respond with PONG
+					DatagramPacket requestPacket = new DatagramPacket(buffer, buffer.length);
+					chatSocket.receive(requestPacket);
+
+					String receivedMessage = new String(requestPacket.getData(), requestPacket.getOffset(),
+							requestPacket.getLength());
+					if ("PING".equals(receivedMessage)) {
+
+						textArea.append("Remote party connected, responding to connection request." + newline);
+
+						sendConnectionMessage("PONG");
+
+						textArea.append("Connection established - Responder" + newline + newline);
+						isConnected = true;
+
+						textArea.append(
+								"---------------------------      Secure Connection      ---------------------------"
+										+ newline + newline);
+
+						textArea.append("Waiting for secure connection initialization by remote..." + newline);
+
+					}
+				}
+
+				// Διαχείριση ανταλλαγής κλειδιών (Key Exchange)
+				while (!securityModule.isSecureConnectionEstablished()) {
+					DatagramPacket keyPacket = new DatagramPacket(buffer, buffer.length);
+					chatSocket.receive(keyPacket);
+
+					String keyMessage = new String(keyPacket.getData(), keyPacket.getOffset(), keyPacket.getLength());
+					if (keyMessage.startsWith("PUBLIC_KEY:")) {
+						String remotePublicKey = keyMessage.split(":")[1];
+						handlePublicKeyExchange(remotePublicKey); // Απαντά με SYMMETRIC_KEY
+					}
+
+					else if (keyMessage.startsWith("SYMMETRIC_KEY:")) {
+						String encryptedSymmetricKey = keyMessage.split(":")[1];
+						if (handleSymmetricKeyExchange(encryptedSymmetricKey)) {
+							textArea.append("Secure connection established successfully!" + newline);
+							sendConnectionMessage("SECURE_CONNECTION_ESTABLISHED");
+						} else
+							textArea.append("Failed to establish secure connection." + newline);
+					}
+
+					else if ("SECURE_CONNECTION_ESTABLISHED".equals(keyMessage)) {
+						textArea.append("Secure connection established." + newline + newline);
+						securityModule.setSecureConnectionStatus(true);
+					}
+				}
+
+			} catch (SocketTimeoutException e) {
+				// Switch roles if no response after timeout
+				if (isInitiator) {
+					isInitiator = false; // No response, retrying as responder
+					textArea.append("Waiting for remote party to connect." + newline);
+				}
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+
+		try {
+			chatSocket.setSoTimeout(0); // Reset the timeout
+		} catch (SocketException e) {
+			e.printStackTrace();
+		}
 	}
 
 	/**
@@ -639,32 +820,7 @@ public class App extends Frame implements WindowListener, ActionListener {
 	 */
 	private void handleConnectionState(String receivedMessage) {
 
-		// Handle key exchange messages
-		if (receivedMessage.startsWith("PUBLIC_KEY:")) {
-			handlePublicKeyExchange(receivedMessage.substring(11)); // As responder, send encrypted
-																	// symmetric key
-		} 
-		
-		else if (receivedMessage.startsWith("SYMMETRIC_KEY:")) {
-
-			if (handleSymmetricKeyExchange(receivedMessage.substring(14))) {
-				textArea.append("Secure connection established." + newline + newline);
-				textArea.append("---------------------------      Chat      ---------------------------" + newline + newline);
-				sendConnectionMessage("SECURE_CONNECTION_ESTABLISHED");
-			}
-
-			else
-				textArea.append("Failed to establish secure connection." + newline);
-
-		} 
-		
-		else if ("SECURE_CONNECTION_ESTABLISHED".equals(receivedMessage)) {
-			textArea.append("Secure connection established." + newline + newline);
-			textArea.append("---------------------------      Chat      ---------------------------" + newline + newline);
-			securityModule.setSecureConnectionStatus(true);
-		}
-
-		else if ("CALL_REQUEST".equals(receivedMessage)) {
+		if ("CALL_REQUEST".equals(receivedMessage)) {
 
 			textArea.append("Incoming call request..." + newline);
 
@@ -688,7 +844,7 @@ public class App extends Frame implements WindowListener, ActionListener {
 			textArea.append("Call rejected by remote." + newline);
 			callButton.setText("Call");
 			callButton.setBackground(Color.GREEN);
-			callButton.setEnabled(true); 
+			callButton.setEnabled(true);
 			acceptButton.setVisible(false);
 			rejectButton.setVisible(false);
 		}
@@ -699,10 +855,10 @@ public class App extends Frame implements WindowListener, ActionListener {
 		}
 
 		else if ("DISCONNECT".equals(receivedMessage)) {
-			handleDisconnect();	
+			handleDisconnect();
 		}
-								
-	}		
+
+	}
 
 	/**
 	 * Handle disconnection
@@ -712,43 +868,41 @@ public class App extends Frame implements WindowListener, ActionListener {
 		isConnected = false;
 		securityModule.setSecureConnectionStatus(false);
 		isInitiator = true;
-		if(isCallActive) {
+		if (isCallActive) {
 			stopCall();
 		}
-	
+
 		// Prompt the user to decide whether to close the app or not
 		int choice = JOptionPane.showOptionDialog(
-			null,
-			"The other party has left. Would you like to close the application?",
-			"Connection Lost",
-			JOptionPane.YES_NO_CANCEL_OPTION,
-			JOptionPane.QUESTION_MESSAGE,
-			null,
-			new String[]{"Close App", "Wait for new connection"},
-			null
-		);
-	
-		if (choice == JOptionPane.YES_OPTION) {
-			App.getInstance().closeApplication();
-		} else if (choice == JOptionPane.NO_OPTION) { // User chose to continue using the app
-	
-			// Prompt the user to keep or clear the chat history
-			int historyChoice = JOptionPane.showOptionDialog(
 				null,
-				"Would you like to clear the chat history before continuing?",
-				"Chat History",
+				"The other party has left. Would you like to close the application?",
+				"Connection Lost",
 				JOptionPane.YES_NO_CANCEL_OPTION,
 				JOptionPane.QUESTION_MESSAGE,
 				null,
-				new String[]{"Clear Chat", "Keep Chat"},
-				null
-			);
-	
+				new String[] { "Close App", "Wait for new connection" },
+				null);
+
+		if (choice == JOptionPane.YES_OPTION) {
+			App.getInstance().closeApplication();
+		} else if (choice == JOptionPane.NO_OPTION) { // User chose to continue using the app
+
+			// Prompt the user to keep or clear the chat history
+			int historyChoice = JOptionPane.showOptionDialog(
+					null,
+					"Would you like to clear the chat history before continuing?",
+					"Chat History",
+					JOptionPane.YES_NO_CANCEL_OPTION,
+					JOptionPane.QUESTION_MESSAGE,
+					null,
+					new String[] { "Clear Chat", "Keep Chat" },
+					null);
+
 			if (historyChoice == JOptionPane.YES_OPTION) {
 				// Clear chat history
 				textArea.setText("");
 			}
-	
+
 			// Return to "waiting for connection" state
 			textArea.append("Waiting for the remote party to reconnect..." + newline);
 			establishConnection(); // Handle reconnection logic
@@ -770,12 +924,8 @@ public class App extends Frame implements WindowListener, ActionListener {
 		}
 	}
 
-
-
-
-
-	
-	// ***************************************   GUI Methods   *************************************** //
+	// *************************************** GUI Methods
+	// *************************************** //
 
 	/**
 	 * These methods have to do with the GUI. You can use them if you wish to define
@@ -799,7 +949,7 @@ public class App extends Frame implements WindowListener, ActionListener {
 	public void windowClosing(WindowEvent e) {
 		closeApplication();
 	}
-	
+
 	@Override
 	public void windowDeactivated(WindowEvent e) {
 		// This method is called when the window loses focus
