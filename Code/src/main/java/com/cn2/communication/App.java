@@ -34,15 +34,12 @@ public class App extends Frame implements WindowListener, ActionListener {
 	private static App instance; // The instance of the App class
 
 	// GUI related fields
-	private static TextField inputTextField; // The text field where the user types the message
-	// private static JTextField mesageTextField; // ???? Never used. Instead we
-	// have inputTextField...)
+	private static JTextField inputTextField; // The text field where the user types the message
 	private static JTextArea textArea; // The text area where the messages are displayed
 	private static JButton sendButton; // The button that sends the message
 	private static JButton callButton; // The button that initiates the call
 	private static JButton acceptButton; // Button to accept call
 	private static JButton rejectButton; // Button to reject call
-	private static final Color GRAY = new Color(254, 254, 254); // The color of the GUI components
 	final static String newline = "\n";
 
 	// Network related fields
@@ -87,6 +84,13 @@ public class App extends Frame implements WindowListener, ActionListener {
 		super(title);
 		setUpGUI(); // Set up the GUI components of the application
 		instance = this; // Set the global instance to the current instance
+		        // Set the Look and Feel (optional)
+				try {
+					UIManager.setLookAndFeel("javax.swing.plaf.nimbus.NimbusLookAndFeel"); 
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+		
 	}
 
 	public static App getInstance() {
@@ -102,14 +106,13 @@ public class App extends Frame implements WindowListener, ActionListener {
 	 */
 	public static void main(String[] args) {
 		try {
-			checkPortAvailability();
 			App app = new App("Chat & VoIP");
 			app.setSize(500, 250);
 			app.setVisible(true);
 
-			String remoteIP = null; // !Replace ``null`` with the actual IP address of the remote machine, eg
-									// "192.168.1.100"
+			String remoteIP = null; // !Replace ``null`` with the actual IP address of the remote machine, eg "192.168.1.100"
 			initializeNetworkComponents(remoteIP);
+			
 			app.establishConnection();
 
 		} catch (Exception e) {
@@ -120,6 +123,26 @@ public class App extends Frame implements WindowListener, ActionListener {
 
 	// *************************************** Initialization & Setup *************************************** //
 	// Methods for setting up the application environment, network, and GUI.
+
+	/**
+	 * Initializes the network components of the application.
+	 */
+	private static void initializeNetworkComponents(String IP) throws Exception {
+
+		checkPortAvailability();
+
+		chatSocket = new DatagramSocket(LOCAL_CHAT_PORT); // Create a new chat socket
+		voiceSocket = new DatagramSocket(LOCAL_VOICE_PORT); // Create a new voice socket
+
+		if (IP == null) {
+			remoteIP = InetAddress.getLocalHost(); // Get the local IP address
+		} else {
+			remoteIP = InetAddress.getByName(IP); // Get the remote IP address
+		}
+
+		audioFormat = new AudioFormat(8000.0f, 8, 1, true, false); // Set the audio format for voice data
+		securityModule = new SecurityModule(); // Initialize the security module
+	}
 
 	// !Testing purposes only (two instances of the app on the same machine)
 	private static void checkPortAvailability() {
@@ -141,25 +164,8 @@ public class App extends Frame implements WindowListener, ActionListener {
 		LOCAL_VOICE_PORT = REMOTE_VOICE_PORT;
 		REMOTE_CHAT_PORT = tempChatPort;
 		REMOTE_VOICE_PORT = tempVoicePort;
-	}
-
-	/**
-	 * Initializes the network components of the application.
-	 */
-	private static void initializeNetworkComponents(String IP) throws Exception {
-
-		chatSocket = new DatagramSocket(LOCAL_CHAT_PORT); // Create a new chat socket
-		voiceSocket = new DatagramSocket(LOCAL_VOICE_PORT); // Create a new voice socket
-
-		if (IP == null) {
-			remoteIP = InetAddress.getLocalHost(); // Get the local IP address
-		} else {
-			remoteIP = InetAddress.getByName(IP); // Get the remote IP address
 		}
-
-		audioFormat = new AudioFormat(8000.0f, 8, 1, true, false); // Set the audio format for voice data
-		securityModule = new SecurityModule(); // Initialize the security module
-	}
+	
 
 	/**
 	 * Handles cleanup of sockets during exceptions or application exit.
@@ -183,13 +189,14 @@ public class App extends Frame implements WindowListener, ActionListener {
 		 */
 
 		// Setting up the characteristics of the frame
-		setBackground(GRAY); // Setting the background color of the frame
-		setLayout(new FlowLayout()); // Setting the layout of the frame
+        // Setting up the characteristics of the frame
+        setBackground(Color.LIGHT_GRAY); // Set a lighter background color
+        setLayout(new FlowLayout(FlowLayout.CENTER, 10, 10)); // Add some spacing
+		// setLayout(new FlowLayout()); // Setting the layout of the frame
 		addWindowListener(this); // Adding the WindowListener to the frame
 
 		// Setting up the TextField (where the user types the message).
-		inputTextField = new TextField();
-		inputTextField.setColumns(20);
+        inputTextField = new JTextField(20); // Create a JTextField with 20 columns
 
 		// Setting up the TextArea (where the messages will be displayed).
 		textArea = new JTextArea(10, 40);
@@ -435,7 +442,6 @@ public class App extends Frame implements WindowListener, ActionListener {
 		} else {
 			textArea.append("---------------------------      TCP Connection      ---------------------------\n");
 			chatSocket.close(); // Close the UDP chat socket as TCP will be used
-			voiceSocket.close(); // Close the UDP voice socket as TCP will be used
 			startTCPServer(); // Start the TCP server for managing connections and messages
 		}
 	}
@@ -527,23 +533,7 @@ public class App extends Frame implements WindowListener, ActionListener {
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
-			}
-
-			else {
-				try { // Close existing sockets to prepare for reconnection
-					if (chatSocket != null && !chatSocket.isClosed()) {
-						chatSocket.close();
-					}
-					if (voiceSocket != null && !voiceSocket.isClosed()) {
-						voiceSocket.close();
-					}
-					textArea.append("Closed existing sockets.\n");
-				} catch (Exception e) {
-					e.printStackTrace();
-					textArea.append("Error closing sockets: " + e.getMessage() + "\n");
-				}
-			}
-
+			
 			isProtocolSelected = false;
 			selectedProtocol = null;
 
@@ -577,6 +567,7 @@ public class App extends Frame implements WindowListener, ActionListener {
 				System.exit(1);
 				return;
 			}
+		}
 
 			// Prompt the user to keep or clear the chat history
 			int historyChoice = JOptionPane.showOptionDialog(
