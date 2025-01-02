@@ -1,11 +1,13 @@
 /**
  *! Instructions:
- ** 1. Replace the IP address in the main method with the actual IP address of the remote machine.
+ ** 1. Replace the IP address in the main method with the actual IP address of the remote machine (line 115).
  * In Windows, you can find the IP address by running the command "ipconfig" in the command prompt.
  * It is the value of the "IPv4 Address" field. Usually, it is something like "192.168.1.100" (where the last octet can be 0-255).
  * 
  ** 2. To run the program, cd ./Code/src/main/java and run the following command:
  ** 	   javac com/cn2/communication/App.java ; java com.cn2.communication.App
+ *
+ ** 3. In function playIncomingCallSound(), replace the path to the ringtone.wav file with the actual path on your machine (line 920).
  */
 
 package com.cn2.communication; // Define the package where the class is located
@@ -375,6 +377,7 @@ public class App extends Frame implements WindowListener, ActionListener {
 						if (handleSymmetricKeyExchange(encryptedSymmetricKey)) { // Decrypt the symmetric key
 							textArea.append("Secure connection established successfully!\n");
 							sendConnectionMessage("SECURE_CONNECTION_ESTABLISHED"); // Inform the remote party
+							securityModule.setSecureConnectionStatus(true); // Mark the connection as secure
 						} else {
 							textArea.append("Failed to establish secure connection.\n");
 						}
@@ -600,7 +603,9 @@ public class App extends Frame implements WindowListener, ActionListener {
 				null, "Are you sure you want to exit?", "Confirm Exit", JOptionPane.YES_NO_OPTION);
 
 		if (choice == JOptionPane.YES_OPTION) {
-			sendConnectionMessage("DISCONNECT");
+			if(isConnected) {
+				sendConnectionMessage("DISCONNECT");
+			}
 			dispose(); // Dispose the window
 			System.exit(0); // Exit the application
 		}
